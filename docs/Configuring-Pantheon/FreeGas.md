@@ -3,27 +3,29 @@ description: Configuring Free Gas Networks
 
 # Free Gas Networks 
 
-Transactions have an associated cost. Gas is the cost unit and the gas price is the price per gas unit. 
-The transaction cost is the gas used * gas price. 
+Every transaction in the Ethereum blockchain comes with an associated cost. The transaction uses computational resources, and users must cover the cost of using that resource. The "fuel" that powers a blockchain transaction is called "gas." Gas is the cost unit and the gas price is the price per gas unit. 
 
-In public networks, the transaction cost is paid in Ether by the account submitting the transaction.
+The transaction cost is calculated by the equation **gas used** * **gas price**. 
+
+In public networks, the account submitting the transaction pays the transaction cost in Ether.
 The transaction cost is paid to the miner (or validator in PoA networks) that includes the transaction in a block.  
 
 In many private networks, the validators are run by the network participants and do not require gas as an 
-incentive to participate.  Generally, networks that do not require gas as an incentive, configure the gas price to be 0 (that is, make gas free). 
+incentive to participate.  Generally, networks that do not require gas as an incentive still figure in the cost of the gas, but simply set the gas price to be 0. That means that gas is a factor, but it's free.
+
 Some private networks may allocate Ether and use a non-zero gas price to limit resource use.  
 
 !!! tip
     We are using the term _free gas network_ to refer to a network where the gas price is set to zero. 
     A network with gas price of zero is also known as a _zero gas network_ or _no gas network_. 
 
-In a free gas network, transactions still use gas but the gas price is 0 meaning the transaction cost is 0:
+In a free gas network, transactions still use gas but the gas price is 0, meaning the transaction cost is 0, as in the equation below.
 
 Transaction cost = gas used * 0 (gas price)    
 
 ## Configuring Pantheon for Free Gas 
 
-When gas is free, limiting block and contract sizes is less important. In free gas networks, we set 
+When gas is free in a transation, then the computational resources used during a transaction are less of a concern, and it's not as important to limit block and contract sizes. That means that with free gas networks, you can set 
 block and contract size limits to the maximum values.   
 
 ### 1. Set Block Size 
@@ -68,15 +70,15 @@ gas limit for transactions in Truffle to the maximum possible.
 
 ### Update truffle-config.js
 
-Update the `truffle-config.js` file: 
+Complete the following steps to update the `truffle-config.js` file to work with free gas networks: 
 
-1. Set the gas price to 0: 
+1. Set the gas price to 0.
 
     ```js
     gasPrice:0
     ```
 
-1. Set the gas limit for a transaction (that is, contract creation) to be the block gas limit - 1
+1. Set the gas limit for a transaction (that is, contract creation) to be the block gas limit - 1.
 
     ```js
     gas: “0x1ffffffffffffe”
