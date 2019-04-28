@@ -18,7 +18,7 @@ in the genesis file.
     }
     ```
 
-For most networks including MainNet and the public testnets, the network ID and the chain ID are the
+For most networks, including MainNet and the public testnets, the network ID and the chain ID are the
 same and are specified in the genesis file.
 
 The network ID and chain ID are automatically defined by Pantheon when connecting to networks specified 
