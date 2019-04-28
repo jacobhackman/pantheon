@@ -1,14 +1,13 @@
 description: Privacy
 <!--- END of page meta data -->
 
-# Privacy
+# Privacy in Transactions
 
-Privacy in Pantheon refers to the ability to keep transactions private between the involved parties. 
-Other parties cannot access the transaction content, sending party, or list of participating parties. 
+Pantheon allows users to keep transactions between involved parties private, preventing additional parties from accessing the transaction content, the sending party, or a list of the participating parties. 
 
 !!! important
-    For production systems requiring private transactions, we recommend using a network 
-    with a consensus mechanism supporting transaction finality. For example, [IBFT 2.0](../Consensus-Protocols/IBFT.md). 
+    For production systems that require private transactions, we recommend using a network 
+    with a consensus mechanism that supports transaction finality. For example, [IBFT 2.0](../Consensus-Protocols/IBFT.md). 
 
 ## Private Transaction Manager
 
@@ -26,7 +25,7 @@ participating in the transaction.
 
 ## Private Transaction Attributes
 
-Private transactions have additional attributes to public Ethereum transactions: 
+Private transactions have additional attributes that distinguish them from public Ethereum transactions. They are listed below: 
 
 * `privateFrom` - Orion public key of transaction sender
 
@@ -34,11 +33,10 @@ Private transactions have additional attributes to public Ethereum transactions:
 
 * `restriction` - Private transactions are `restricted` or `unrestricted`:  
   
-    - In `restricted` private transactions the payload of the private transaction is received and stored only by 
-    the nodes participating in the transaction. 
+    - In `restricted` private transactions, only the nodes participating in the transaction receive and store the payload of the private transaction.
 
     - In `unrestricted` private transactions the payload of the private transaction is transmitted to all nodes
-    in the network but is readable only by nodes participating in the transaction.   
+    in the network, but is *readable* only by nodes participating in the transaction.   
 
     !!! important 
         Pantheon implements `restricted` private transactions only.
@@ -49,16 +47,15 @@ Pantheon and Orion nodes both have public/private key pairs identifying them. Th
 submitted from the Pantheon node to the Orion node is signed with the Pantheon node private key. The 
 `privateFrom` and `privateFor` attributes specified in the RLP-encoded transaction string for 
 [`eea_sendRawTransaction`](../Reference/JSON-RPC-API-Methods.md#eea_sendrawtransaction) are the public keys
-of the Orion nodes sending and receiving the transaction.  
+of the Orion nodes that sendi and receive the transaction.  
 
 !!! important 
-    The mapping of Pantheon node addresses to Orion node public keys is off-chain.  That is, the 
+    Pantheon node address mapping to Orion node public keys is off-chain. That is, the 
     sender of a private transaction must know the Orion node public key of the recipient.  
  
 ## Privacy Groups 
 
-The group of nodes specified by `privateFrom`and `privateFor` form a privacy group and 
-are given a unique privacy group ID by Orion. The private transaction is stored in Orion with the privacy group ID. 
+The group of nodes specified by `privateFrom`and `privateFor` form a privacy group, and Orion gives thema  unique privacy group ID. The private transaction is stored in Orion with the privacy group ID. 
 
 The Pantheon nodes maintain the public world state for the blockchain and a private state for each privacy group. 
 The private states contain data that is not shared in the globally replicated world state. Private transactions read 
@@ -71,12 +68,12 @@ and write to the private world state for the privacy group, and read from the pu
     each Pantheon node must have an associated Orion node. 
 
 !!! example 
-    The above illustrates two privacy groups enabling: 
+    The above image illustrates two privacy groups enabling the following: 
 
     * A, B, and C to send transactions that are private from D 
     * A, C, and D to send transactions that are private from B 
 
-    To send private transactions between A, B, and C, A initialises a contract in a private transaction with
+    To send private transactions between A, B, and C, A initialises a contract in a private transaction, with
     B and C specified as the `privateFor` and A specified as the `privateFrom`. Initialising the contract 
     creates a privacy group consisting of A, B, and C. For the ABC private state to remain consistent, 
     A, B, and C must be included on transactions (as either `privateFrom` or `privateFor`) even if they are 
