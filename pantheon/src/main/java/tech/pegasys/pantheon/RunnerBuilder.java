@@ -41,9 +41,9 @@ import tech.pegasys.pantheon.ethereum.jsonrpc.websocket.subscription.pending.Pen
 import tech.pegasys.pantheon.ethereum.jsonrpc.websocket.subscription.pending.PendingTransactionSubscriptionService;
 import tech.pegasys.pantheon.ethereum.jsonrpc.websocket.subscription.syncing.SyncingSubscriptionService;
 import tech.pegasys.pantheon.ethereum.mainnet.ProtocolSchedule;
-import tech.pegasys.pantheon.ethereum.p2p.ConnectingToLocalNodeException;
 import tech.pegasys.pantheon.ethereum.p2p.InsufficientPeersPermissioningProvider;
 import tech.pegasys.pantheon.ethereum.p2p.NetworkRunner;
+import tech.pegasys.pantheon.ethereum.p2p.NetworkRunner.NetworkBuilder;
 import tech.pegasys.pantheon.ethereum.p2p.NoopP2PNetwork;
 import tech.pegasys.pantheon.ethereum.p2p.api.P2PNetwork;
 import tech.pegasys.pantheon.ethereum.p2p.api.ProtocolManager;
@@ -51,9 +51,8 @@ import tech.pegasys.pantheon.ethereum.p2p.config.DiscoveryConfiguration;
 import tech.pegasys.pantheon.ethereum.p2p.config.NetworkingConfiguration;
 import tech.pegasys.pantheon.ethereum.p2p.config.RlpxConfiguration;
 import tech.pegasys.pantheon.ethereum.p2p.config.SubProtocolConfiguration;
-import tech.pegasys.pantheon.ethereum.p2p.netty.NettyP2PNetwork;
+import tech.pegasys.pantheon.ethereum.p2p.network.DefaultP2PNetwork;
 import tech.pegasys.pantheon.ethereum.p2p.peers.DefaultPeer;
-import tech.pegasys.pantheon.ethereum.p2p.peers.Peer;
 import tech.pegasys.pantheon.ethereum.p2p.peers.PeerBlacklist;
 import tech.pegasys.pantheon.ethereum.p2p.wire.Capability;
 import tech.pegasys.pantheon.ethereum.p2p.wire.SubProtocol;
@@ -73,6 +72,7 @@ import tech.pegasys.pantheon.util.enode.EnodeURL;
 
 import java.net.URI;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -81,6 +81,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import io.vertx.core.Vertx;
 
@@ -102,15 +103,6 @@ public class RunnerBuilder {
   private MetricsSystem metricsSystem;
   private Optional<PermissioningConfiguration> permissioningConfiguration = Optional.empty();
   private Collection<EnodeURL> staticNodes = Collections.emptyList();
-
-  private EnodeURL getSelfEnode() {
-    BytesValue nodeId = pantheonController.getLocalNodeKeyPair().getPublicKey().getEncodedBytes();
-    return EnodeURL.builder()
-        .nodeId(nodeId)
-        .ipAddress(p2pAdvertisedHost)
-        .listeningPort(p2pListenPort)
-        .build();
-  }
 
   public RunnerBuilder vertx(final Vertx vertx) {
     this.vertx = vertx;
@@ -254,8 +246,10 @@ public class RunnerBuilder {
         new TransactionSimulator(
             context.getBlockchain(), context.getWorldStateArchive(), protocolSchedule);
 
+    BytesValue localNodeId = keyPair.getPublicKey().getEncodedBytes();
     final Optional<NodePermissioningController> nodePermissioningController =
-        buildNodePermissioningController(bootnodesAsEnodeURLs, synchronizer, transactionSimulator);
+        buildNodePermissioningController(
+            bootnodesAsEnodeURLs, synchronizer, transactionSimulator, localNodeId);
 
     final Optional<NodeLocalConfigPermissioningController> nodeWhitelistController =
         nodePermissioningController
@@ -266,35 +260,34 @@ public class RunnerBuilder {
                         .findFirst())
             .map(n -> (NodeLocalConfigPermissioningController) n);
 
+    NetworkBuilder inactiveNetwork = (caps) -> new NoopP2PNetwork();
+    NetworkBuilder activeNetwork =
+        (caps) ->
+            DefaultP2PNetwork.builder()
+                .vertx(vertx)
+                .keyPair(keyPair)
+                .nodeLocalConfigPermissioningController(nodeWhitelistController)
+                .config(networkConfig)
+                .peerBlacklist(peerBlacklist)
+                .metricsSystem(metricsSystem)
+                .supportedCapabilities(caps)
+                .nodePermissioningController(nodePermissioningController)
+                .blockchain(context.getBlockchain())
+                .build();
+
     final NetworkRunner networkRunner =
         NetworkRunner.builder()
             .protocolManagers(protocolManagers)
             .subProtocols(subProtocols)
-            .network(
-                p2pEnabled
-                    ? caps ->
-                        new NettyP2PNetwork(
-                            vertx,
-                            keyPair,
-                            networkConfig,
-                            caps,
-                            peerBlacklist,
-                            metricsSystem,
-                            nodeWhitelistController,
-                            nodePermissioningController,
-                            // TODO this dependency on the Blockchain will be removed in PAN-2442
-                            nodePermissioningController.isPresent()
-                                ? context.getBlockchain()
-                                : null)
-                    : caps -> new NoopP2PNetwork())
+            .network(p2pEnabled ? activeNetwork : inactiveNetwork)
             .metricsSystem(metricsSystem)
             .build();
 
+    final P2PNetwork network = networkRunner.getNetwork();
     nodePermissioningController.ifPresent(
         n ->
             n.setInsufficientPeersPermissioningProvider(
-                new InsufficientPeersPermissioningProvider(
-                    networkRunner.getNetwork(), getSelfEnode(), bootnodesAsEnodeURLs)));
+                new InsufficientPeersPermissioningProvider(network, bootnodesAsEnodeURLs)));
 
     final TransactionPool transactionPool = pantheonController.getTransactionPool();
     final MiningCoordinator miningCoordinator = pantheonController.getMiningCoordinator();
@@ -314,14 +307,9 @@ public class RunnerBuilder {
 
     final P2PNetwork peerNetwork = networkRunner.getNetwork();
 
-    staticNodes.forEach(
-        enodeURL -> {
-          final Peer peer = DefaultPeer.fromEnodeURL(enodeURL);
-          try {
-            peerNetwork.addMaintainConnectionPeer(peer);
-          } catch (ConnectingToLocalNodeException ex) {
-          }
-        });
+    staticNodes.stream()
+        .map(DefaultPeer::fromEnodeURL)
+        .forEach(peerNetwork::addMaintainConnectionPeer);
 
     Optional<JsonRpcHttpService> jsonRpcHttpService = Optional.empty();
     if (jsonRpcConfiguration.isEnabled()) {
@@ -407,16 +395,21 @@ public class RunnerBuilder {
   private Optional<NodePermissioningController> buildNodePermissioningController(
       final List<EnodeURL> bootnodesAsEnodeURLs,
       final Synchronizer synchronizer,
-      final TransactionSimulator transactionSimulator) {
+      final TransactionSimulator transactionSimulator,
+      final BytesValue localNodeId) {
+    Collection<EnodeURL> fixedNodes = getFixedNodes(bootnodesAsEnodeURLs, staticNodes);
     return permissioningConfiguration.map(
         config ->
             new NodePermissioningControllerFactory()
-                .create(
-                    config,
-                    synchronizer,
-                    bootnodesAsEnodeURLs,
-                    getSelfEnode(),
-                    transactionSimulator));
+                .create(config, synchronizer, fixedNodes, localNodeId, transactionSimulator));
+  }
+
+  @VisibleForTesting
+  public static Collection<EnodeURL> getFixedNodes(
+      final Collection<EnodeURL> someFixedNodes, final Collection<EnodeURL> moreFixedNodes) {
+    Collection<EnodeURL> fixedNodes = new ArrayList<>(someFixedNodes);
+    fixedNodes.addAll(moreFixedNodes);
+    return fixedNodes;
   }
 
   private FilterManager createFilterManager(
